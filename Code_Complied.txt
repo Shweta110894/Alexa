@@ -1,0 +1,204 @@
+from Adafruit_IO import MQTTClient
+import time                                              
+from PCANBasic import *         ## PCAN-Basic library import
+import RPi.GPIO as GPIO
+import requests
+
+
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(7,GPIO.OUT)
+GPIO.setup(11,GPIO.OUT)
+GPIO.output(7,0)
+
+channel = PCAN_USBBUS1
+baud    = PCAN_BAUD_500K
+pcb = PCANBasic()
+result = pcb.Initialize(channel, baud)
+
+a="https://maker.ifttt.com/trigger/canread/with/key/ThwXX0n_GwXtGYlC_o75R?value1="
+ADAFRUIT_IO_USERNAME = "haseel"
+ADAFRUIT_IO_KEY = "7226d28944f845dfbb84d266fdea5cce"
+#############################################################
+def start():
+ GPIO.output(7,1)
+ time.sleep(3)
+ GPIO.output(11,1)
+ time.sleep(3)
+ GPIO.output(11,0)
+
+
+#############################################################
+
+#single function for on,off and set temp
+
+def ac_on(a):
+ msg = TPCANMsg()
+ msg.ID = 0x220
+ msg.MSGTYPE = PCAN_MESSAGE_STANDARD
+ msg.LEN = 8
+ msg.DATA[0] = 0xFF
+ msg.DATA[1] = 0x00
+ msg.DATA[2] = 0x00
+ msg.DATA[3] = 0x00
+ msg.DATA[4] = 0xFE
+ msg.DATA[5] = 0xA0
+ msg.DATA[6] = 0x00
+ msg.DATA[7] = 0x00
+ #pcb.Uninitialize(PCAN_NONEBUS)
+ #pcb.Initialize(PCAN_USBBUS1, PCAN_BAUD_500K)
+ #global flag
+ #if flag==0:
+  #result=pcb.Initialize(PCAN_USBBUS1, PCAN_BAUD_500K)
+  #flag=1
+  #if result!=PCAN_ERROR_OK:
+   #result=pcb.GetErrorText(result)
+   #print result[1]
+ print "entered into function"
+ n=0
+ i=0
+ j=0
+ for n in range(30):
+  if n==10:
+   if a==1:
+    msg.DATA[5] = 0x90
+   elif a==0:
+     msg.DATA[5] = 0x80
+   elif a>16:
+     msg.DATA[5] = 0x90
+     i=0
+   for i in range(0,10):
+     pcb.Write(PCAN_USBBUS1,msg)
+     time.sleep(1/10)
+     print " turning on ac"
+     
+   msg.DATA[5] = 0xA0
+   for i in range(0,10):
+     pcb.Write(PCAN_USBBUS1,msg)
+     time.sleep(1/10)
+     print " default"
+   a=80+a*2 
+   msg.DATA[4] = a
+   print msg.DATA[4]
+   i=0
+   for i in range(0,10):
+     pcb.Write(PCAN_USBBUS1,msg)
+     time.sleep(1/10)
+     print " sent set temp signals"
+     
+   msg.DATA[5] = 0xA0
+   msg.DATA[4] = 0xFE
+     
+   print "n=10"
+   for i in range(0,4):
+     pcb.Write(PCAN_USBBUS1,msg)
+     time.sleep(1/10)
+     print "sent signals for ON"
+   msg.DATA[5] = 0xA0
+   msg.DATA[4] = 0xFE
+   
+  else :
+   pcb.Write(PCAN_USBBUS1,msg)
+   time.sleep(1/10)
+   print "DEFAULT VALUE"
+  n=n+1
+ #pcb.Uninitialize(PCAN_NONEBUS)
+
+#############################################################
+def readcan():
+     flag = 0
+     print"enter"
+     result = pcb.Initialize(channel, baud)
+
+     while(flag<1):
+            readResult = pcb.Read(channel)
+            print readResult[0]
+            if readResult[0] == PCAN_ERROR_OK:
+                 msg = readResult[1]
+                 x=msg.ID
+                 print x
+                 if(x == 529):
+                    flag=1
+                    print('ID = ',msg.ID)
+                    print('MSGTYPE = ',msg.MSGTYPE)
+                    print('LEN = ',msg.LEN)
+                    print('DATA[0] = ',msg.DATA[0])
+                    print('DATA[1] = ',msg.DATA[1])
+                    print('DATA[2] = ',msg.DATA[2])
+                    print('DATA[3] = ',msg.DATA[3])
+                    print('DATA[4] = ',msg.DATA[4])
+                    print('DATA[5] = ',msg.DATA[5])
+                    print('DATA[6] = ',msg.DATA[6])
+                    print('DATA[7] = ',msg.DATA[7])
+                    x= msg.DATA[0]
+                    y= msg.DATA[1]
+                    pcb.Uninitialize(PCAN_NONEBUS)
+                    b=((y<<8) | x )
+                    print "fuel left ", b
+                    c=str(b)
+                    d=a+c
+                    print d
+                    requests.post(d)
+
+#############################################################
+
+
+  
+  
+
+if result != PCAN_ERROR_OK:
+    # An error occured, get a text describing the error and show it
+    #
+    result = pcb.GetErrorText(result)
+    print(result[1])
+else:
+    print("PCAN-USBx was initialized")
+
+
+def connected(client):
+    client.subscribe('ac') # or change to whatever name you used
+
+# this gets called every time a message is received
+def message(client, feed_id, payload):
+     if payload == "1":
+        a=int(payload)
+        ac_on(a)
+        print "Message ON received from IFTTT."
+        
+        
+     elif payload == "0":
+        print "Message OFF received from IFTTT."
+        a=int(payload)
+        ac_on(a)
+     elif payload == "3":
+        print "Message READ received from IFTTT."
+        
+        readcan()
+        
+      elif payload == "4":
+        print "Message START received from IFTTT."
+        start()  
+        
+     elif payload == "5":
+        print "Message STOP received from IFTTT."
+        GPIO.output(7,0)  
+            
+     elif payload > '16':
+         print "Temperature recieved  ",payload
+         a=int(payload)
+         ac_on(a)
+    
+     else:
+        print "Message from IFTTT: %s" % payload
+        
+        
+#objPCAN.Uninitialize(PCAN_NONEBUS)
+client = MQTTClient(ADAFRUIT_IO_USERNAME, ADAFRUIT_IO_KEY)
+
+# Setup the callback functions defined above.
+client.on_connect    = connected
+client.on_message    = message
+
+client.connect()
+
+client.loop_blocking() # block forever on client loop
+GPIO.cleanup()
